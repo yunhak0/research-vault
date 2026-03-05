@@ -1,2 +1,5 @@
 # Development-only (exclude from git archive / distribution)
 tests/ export-ignore
+
+# Shell scripts must use LF line endings (Windows CRLF breaks bash)
+*.sh text eol=lf

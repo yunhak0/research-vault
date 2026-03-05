@@ -506,7 +506,7 @@ cmd_project() {
         local repo_count
         repo_count=$(grep -cv '^#\|^$' "$conf_file" 2>/dev/null || echo 0)
         local last_repo
-        last_repo=$(grep -v '^#\|^$' "$conf_file" | tail -1 | xargs)
+        last_repo=$(grep -v '^#\|^$' "$conf_file" | tail -1 | xargs || true)
         if [[ -n "$last_repo" ]]; then
             if [[ "$repo_count" -le 1 ]]; then
                 repo_hint="$last_repo"

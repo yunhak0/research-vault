@@ -244,79 +244,126 @@ _setup_project() {
     local project_id="$2"
     local project_name="$3"
     local project_desc="$4"
-    local code_repo="$5"
+    local code_repo="${5:-}"  # 빈 문자열이면 vault에 직접 생성
 
     local project_dir="${project_id}_${project_name}"
-    local vault_link="$vault_path/$project_dir"
+    local vault_project="$vault_path/$project_dir"
 
     # vault 충돌 확인
-    if [[ -e "$vault_link" ]]; then
-        log_error "Vault에 이미 존재합니다: $vault_link"
+    if [[ -e "$vault_project" ]]; then
+        log_error "Vault에 이미 존재합니다: $vault_project"
         return 1
     fi
 
     log_section "프로젝트 생성: $project_dir"
 
-    # 1. agent-docs/ 구조 복사
-    local template_docs="$PROJECT_TEMPLATE/agent-docs"
-    if [[ -d "$template_docs" ]]; then
-        mkdir -p "$code_repo/agent-docs"
-        cp -rn "$template_docs/" "$code_repo/agent-docs/" 2>/dev/null || \
-        cp -r "$template_docs/" "$code_repo/agent-docs/"
-        find "$code_repo/agent-docs" -name ".DS_Store" -delete 2>/dev/null || true
-        echo "  ✅ agent-docs/ 구조 → 프로젝트 repo (obsidian/ + tasks/ + analyze/)"
+    # ── mode 결정: repo 연결 vs vault 직접 생성 ──
+    local mode="repo"
+    if [[ -z "$code_repo" ]] || [[ ! -d "$code_repo" ]]; then
+        mode="vault_only"
     fi
 
-    # 2. README.md
-    if [[ ! -f "$code_repo/agent-docs/obsidian/README.md" ]] && [[ -f "$PROJECT_TEMPLATE/README.md" ]]; then
-        cp "$PROJECT_TEMPLATE/README.md" "$code_repo/agent-docs/obsidian/README.md"
-        echo "  ✅ agent-docs/obsidian/README.md (프로젝트 문서 정의서)"
-    fi
-
-    # 2b. CLAUDE.md
-    if [[ ! -f "$code_repo/CLAUDE.md" ]] && [[ -f "$PROJECT_TEMPLATE/CLAUDE.md" ]]; then
-        cp "$PROJECT_TEMPLATE/CLAUDE.md" "$code_repo/CLAUDE.md"
-        echo "  ✅ CLAUDE.md (코딩 에이전트 설정)"
-    elif [[ -f "$code_repo/CLAUDE.md" ]]; then
-        log_warn "CLAUDE.md 이미 존재 — 건너뜀"
-    fi
-
-    # 2c. .claude/
-    if [[ ! -d "$code_repo/.claude" ]] && [[ -d "$PROJECT_TEMPLATE/.claude" ]]; then
-        cp -r "$PROJECT_TEMPLATE/.claude" "$code_repo/.claude"
-        echo "  ✅ .claude/ (Claude Code hooks + settings)"
-    elif [[ -d "$code_repo/.claude" ]]; then
-        log_warn ".claude/ 이미 존재 — 건너뜀"
-    fi
-
-    # 3. 플레이스홀더 치환
+    local obsidian_dir
     local today
     today=$(date "+%Y-%m-%d")
 
-    for file in "$code_repo/agent-docs/obsidian/README.md" "$code_repo/agent-docs/obsidian/00_project_index.md" "$code_repo/CLAUDE.md"; do
-        if [[ -f "$file" ]]; then
-            replace_placeholder "$file" "PROJECT_ID" "$project_id"
-            replace_placeholder "$file" "PROJECT_NAME" "$project_name"
-            replace_placeholder "$file" "PROJECT_DESCRIPTION" "$project_desc"
-            replace_placeholder "$file" "CREATED_DATE" "$today"
-            replace_placeholder "$file" "ARCHITECTURE_SUMMARY" "(미정)"
-            replace_placeholder "$file" "WANDB_PROJECT" "(미정)"
+    if [[ "$mode" == "repo" ]]; then
+        # ── repo 모드: agent-docs를 repo에 생성, vault에 symlink ──
+        obsidian_dir="$code_repo/agent-docs/obsidian"
+
+        # 1. agent-docs/ 구조 복사
+        local template_docs="$PROJECT_TEMPLATE/agent-docs"
+        if [[ -d "$template_docs" ]]; then
+            mkdir -p "$code_repo/agent-docs"
+            cp -rn "$template_docs/" "$code_repo/agent-docs/" 2>/dev/null || \
+            cp -r "$template_docs/" "$code_repo/agent-docs/"
+            find "$code_repo/agent-docs" -name ".DS_Store" -delete 2>/dev/null || true
+            echo "  ✅ agent-docs/ 구조 → 프로젝트 repo (obsidian/ + tasks/ + analyze/)"
         fi
-    done
-    echo "  ✅ 플레이스홀더 치환"
 
-    # 4. Vault symlink
-    ln -s "$code_repo/agent-docs/obsidian" "$vault_link"
-    echo "  ✅ Vault symlink: $project_dir → $code_repo/agent-docs/obsidian"
+        # 2. README.md
+        if [[ ! -f "$obsidian_dir/README.md" ]] && [[ -f "$PROJECT_TEMPLATE/README.md" ]]; then
+            cp "$PROJECT_TEMPLATE/README.md" "$obsidian_dir/README.md"
+            echo "  ✅ agent-docs/obsidian/README.md (프로젝트 문서 정의서)"
+        fi
 
-    # 5. daily.conf
-    local conf_file="$vault_path/.vault/daily.conf"
-    if ! grep -q "$code_repo" "$conf_file" 2>/dev/null; then
-        echo "$code_repo" >> "$conf_file"
-        echo "  ✅ daily.conf에 추가"
+        # 2b. CLAUDE.md
+        if [[ ! -f "$code_repo/CLAUDE.md" ]] && [[ -f "$PROJECT_TEMPLATE/CLAUDE.md" ]]; then
+            cp "$PROJECT_TEMPLATE/CLAUDE.md" "$code_repo/CLAUDE.md"
+            echo "  ✅ CLAUDE.md (코딩 에이전트 설정)"
+        elif [[ -f "$code_repo/CLAUDE.md" ]]; then
+            log_warn "CLAUDE.md 이미 존재 — 건너뜀"
+        fi
+
+        # 2c. .claude/
+        if [[ ! -d "$code_repo/.claude" ]] && [[ -d "$PROJECT_TEMPLATE/.claude" ]]; then
+            cp -r "$PROJECT_TEMPLATE/.claude" "$code_repo/.claude"
+            echo "  ✅ .claude/ (Claude Code hooks + settings)"
+        elif [[ -d "$code_repo/.claude" ]]; then
+            log_warn ".claude/ 이미 존재 — 건너뜀"
+        fi
+
+        # 3. 플레이스홀더 치환
+        for file in "$obsidian_dir/README.md" "$obsidian_dir/00_project_index.md" "$code_repo/CLAUDE.md"; do
+            if [[ -f "$file" ]]; then
+                replace_placeholder "$file" "PROJECT_ID" "$project_id"
+                replace_placeholder "$file" "PROJECT_NAME" "$project_name"
+                replace_placeholder "$file" "PROJECT_DESCRIPTION" "$project_desc"
+                replace_placeholder "$file" "CREATED_DATE" "$today"
+                replace_placeholder "$file" "ARCHITECTURE_SUMMARY" "(미정)"
+                replace_placeholder "$file" "WANDB_PROJECT" "(미정)"
+            fi
+        done
+        echo "  ✅ 플레이스홀더 치환"
+
+        # 4. Vault symlink
+        ln -s "$obsidian_dir" "$vault_project"
+        echo "  ✅ Vault symlink: $project_dir → $code_repo/agent-docs/obsidian"
+
+        # 5. daily.conf
+        local conf_file="$vault_path/.vault/daily.conf"
+        if ! grep -q "$code_repo" "$conf_file" 2>/dev/null; then
+            echo "$code_repo" >> "$conf_file"
+            echo "  ✅ daily.conf에 추가"
+        fi
+    else
+        # ── vault_only 모드: vault에 직접 obsidian 구조 생성 ──
+        obsidian_dir="$vault_project"
+
+        # 1. obsidian 구조만 복사 (agent-docs/obsidian 내용을 vault에 직접)
+        local template_obsidian="$PROJECT_TEMPLATE/agent-docs/obsidian"
+        if [[ -d "$template_obsidian" ]]; then
+            mkdir -p "$obsidian_dir"
+            cp -rn "$template_obsidian/" "$obsidian_dir/" 2>/dev/null || \
+            cp -r "$template_obsidian/" "$obsidian_dir/"
+            find "$obsidian_dir" -name ".DS_Store" -delete 2>/dev/null || true
+            echo "  ✅ Obsidian 문서 구조 → vault 직접 생성"
+        fi
+
+        # 2. README.md
+        if [[ ! -f "$obsidian_dir/README.md" ]] && [[ -f "$PROJECT_TEMPLATE/README.md" ]]; then
+            cp "$PROJECT_TEMPLATE/README.md" "$obsidian_dir/README.md"
+            echo "  ✅ README.md (프로젝트 문서 정의서)"
+        fi
+
+        # 3. 플레이스홀더 치환
+        for file in "$obsidian_dir/README.md" "$obsidian_dir/00_project_index.md"; do
+            if [[ -f "$file" ]]; then
+                replace_placeholder "$file" "PROJECT_ID" "$project_id"
+                replace_placeholder "$file" "PROJECT_NAME" "$project_name"
+                replace_placeholder "$file" "PROJECT_DESCRIPTION" "$project_desc"
+                replace_placeholder "$file" "CREATED_DATE" "$today"
+                replace_placeholder "$file" "ARCHITECTURE_SUMMARY" "(미정)"
+                replace_placeholder "$file" "WANDB_PROJECT" "(미정)"
+            fi
+        done
+        echo "  ✅ 플레이스홀더 치환"
+
+        echo "  ℹ️  Vault에 직접 생성됨 (symlink 없음)"
+        echo "  ℹ️  나중에 repo 연결 시: rm -rf $vault_project && ln -s <repo>/agent-docs/obsidian $vault_project"
     fi
 
-    # 6. config.yaml
+    # 6. config.yaml (양쪽 모드 공통)
     _add_project_to_config "$vault_path" "$project_id" "$project_name" "$code_repo"
 
     return 0
@@ -476,18 +523,20 @@ cmd_project() {
         echo ""
         log_warn "경로가 존재하지 않습니다: $code_repo"
         echo ""
-        echo "  새 프로젝트를 생성할까요?"
+        echo "  어떻게 할까요?"
         echo ""
-        echo -e "    ${CYAN}1${NC}) uv init — Python 프로젝트 (pyproject.toml, .venv, src/) ${GREEN}[권장]${NC}"
+        echo -e "    ${CYAN}1${NC}) uv init — Python 프로젝트 생성 (pyproject.toml, .venv, src/) ${GREEN}[권장]${NC}"
         echo -e "    ${CYAN}2${NC}) git init — 빈 Git 저장소만 생성"
-        echo -e "    ${CYAN}3${NC}) 취소"
+        echo -e "    ${CYAN}3${NC}) Vault에 직접 생성 — repo 없이 문서 구조만 먼저 (나중에 repo 연결)"
+        echo -e "    ${CYAN}4${NC}) 취소"
         echo ""
         local init_choice
-        init_choice=$(ask "선택 (1/2/3)" "1")
+        init_choice=$(ask "선택 (1/2/3/4)" "1")
 
         case "$init_choice" in
             1) repo_method="uv" ;;
             2) repo_method="git" ;;
+            3) repo_method="vault_only" ;;
             *)
                 echo "취소되었습니다."
                 exit 0
@@ -501,8 +550,8 @@ cmd_project() {
         fi
     fi
 
-    # agent-docs 존재 확인 (interactive)
-    if [[ -d "$code_repo/agent-docs/obsidian" ]]; then
+    # agent-docs 존재 확인 (interactive, repo 모드에서만)
+    if [[ "$repo_method" != "vault_only" ]] && [[ -d "$code_repo/agent-docs/obsidian" ]]; then
         log_warn "프로젝트 repo에 이미 agent-docs/obsidian/ 폴더가 존재합니다."
         if ! confirm "기존 agent-docs/obsidian/ 안에 연구 문서 구조를 추가할까요? (기존 파일은 유지)"; then
             echo "취소되었습니다."
@@ -511,49 +560,70 @@ cmd_project() {
     fi
 
     # ── Core 호출 ──
-    if [[ "$repo_method" != "existing" ]]; then
-        _ensure_repo "$code_repo" "$repo_method" || exit 1
+    if [[ "$repo_method" == "vault_only" ]]; then
+        _setup_project "$vault_path" "$project_id" "$project_name" "$project_desc" "" || exit 1
+    else
+        if [[ "$repo_method" != "existing" ]]; then
+            _ensure_repo "$code_repo" "$repo_method" || exit 1
+        fi
+        _setup_project "$vault_path" "$project_id" "$project_name" "$project_desc" "$code_repo" || exit 1
     fi
 
-    _setup_project "$vault_path" "$project_id" "$project_name" "$project_desc" "$code_repo" || exit 1
-
-    # 플러그인 (optional, non-critical)
-    if command -v claude &>/dev/null; then
-        log_section "Claude Code 플러그인"
-        if (cd "$code_repo" && claude plugin install ralph-loop@claude-plugins-official --scope project 2>/dev/null); then
-            echo "  ✅ ralph-loop 플러그인 설치 (자율 반복 루프)"
+    # 플러그인 (optional, repo 모드에서만)
+    if [[ "$repo_method" != "vault_only" ]]; then
+        if command -v claude &>/dev/null; then
+            log_section "Claude Code 플러그인"
+            if (cd "$code_repo" && claude plugin install ralph-loop@claude-plugins-official --scope project 2>/dev/null); then
+                echo "  ✅ ralph-loop 플러그인 설치 (자율 반복 루프)"
+            else
+                log_warn "ralph-loop 설치 실패 — Claude Code에서 직접 설치하세요:"
+                echo "    /plugin install ralph-loop@claude-plugins-official"
+            fi
+            if (cd "$code_repo" && claude plugin install claude-hud@claude-hud --scope user 2>/dev/null); then
+                echo "  ✅ claude-hud 플러그인 설치 (상태 표시줄)"
+            else
+                log_warn "claude-hud 설치 실패 — Claude Code에서 직접 설치하세요:"
+                echo "    /plugin install claude-hud@claude-hud"
+            fi
         else
-            log_warn "ralph-loop 설치 실패 — Claude Code에서 직접 설치하세요:"
+            log_info "Claude Code CLI 미감지 — 플러그인은 첫 세션에서 설치하세요:"
             echo "    /plugin install ralph-loop@claude-plugins-official"
-        fi
-        if (cd "$code_repo" && claude plugin install claude-hud@claude-hud --scope user 2>/dev/null); then
-            echo "  ✅ claude-hud 플러그인 설치 (상태 표시줄)"
-        else
-            log_warn "claude-hud 설치 실패 — Claude Code에서 직접 설치하세요:"
             echo "    /plugin install claude-hud@claude-hud"
         fi
-    else
-        log_info "Claude Code CLI 미감지 — 플러그인은 첫 세션에서 설치하세요:"
-        echo "    /plugin install ralph-loop@claude-plugins-official"
-        echo "    /plugin install claude-hud@claude-hud"
     fi
 
     # 완료
     local project_dir="${project_id}_${project_name}"
     log_section "프로젝트 생성 완료"
     echo ""
-    echo -e "  ${CYAN}📁 프로젝트 repo${NC}: $code_repo"
-    echo -e "  ${CYAN}🤖 CLAUDE.md${NC}: $code_repo/CLAUDE.md ([TODO] → 첫 세션에서 자동 채움)"
-    echo -e "  ${CYAN}📄 문서 정의서${NC}: $code_repo/agent-docs/obsidian/README.md"
-    echo -e "  ${CYAN}📄 프로젝트 인덱스${NC}: $code_repo/agent-docs/obsidian/00_project_index.md"
-    echo -e "  ${CYAN}🔗 Vault symlink${NC}: $vault_path/$project_dir → $code_repo/agent-docs/obsidian"
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo -e "  다음 단계:"
-    echo -e "    1. ${GREEN}Claude Code 첫 세션${NC} → CLAUDE.md의 [TODO] 마커가 자동으로 채워짐"
-    echo -e "    2. agent-docs/obsidian/README.md에서 ${GREEN}ARCHITECTURE_SUMMARY${NC}, ${GREEN}WANDB_PROJECT${NC} 등 미정 항목 채우기"
-    echo -e "    3. Obsidian에서 $project_dir 폴더가 정상 표시되는지 확인"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if [[ "$repo_method" == "vault_only" ]]; then
+        echo -e "  ${CYAN}📁 Vault 프로젝트${NC}: $vault_path/$project_dir"
+        echo -e "  ${CYAN}📄 문서 정의서${NC}: $vault_path/$project_dir/README.md"
+        echo -e "  ${CYAN}📄 프로젝트 인덱스${NC}: $vault_path/$project_dir/00_project_index.md"
+        echo -e "  ${YELLOW}⚠ Repo 미연결${NC}: 나중에 repo 생성 후 symlink으로 전환 가능"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo -e "  다음 단계:"
+        echo -e "    1. Obsidian에서 ${GREEN}$project_dir${NC} 폴더 확인"
+        echo -e "    2. README.md에서 미정 항목 채우기"
+        echo -e "    3. Repo 생성 후 연결:"
+        echo -e "       ${CYAN}rm -rf $vault_path/$project_dir${NC}"
+        echo -e "       ${CYAN}ln -s <repo>/agent-docs/obsidian $vault_path/$project_dir${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    else
+        echo -e "  ${CYAN}📁 프로젝트 repo${NC}: $code_repo"
+        echo -e "  ${CYAN}🤖 CLAUDE.md${NC}: $code_repo/CLAUDE.md ([TODO] → 첫 세션에서 자동 채움)"
+        echo -e "  ${CYAN}📄 문서 정의서${NC}: $code_repo/agent-docs/obsidian/README.md"
+        echo -e "  ${CYAN}📄 프로젝트 인덱스${NC}: $code_repo/agent-docs/obsidian/00_project_index.md"
+        echo -e "  ${CYAN}🔗 Vault symlink${NC}: $vault_path/$project_dir → $code_repo/agent-docs/obsidian"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo -e "  다음 단계:"
+        echo -e "    1. ${GREEN}Claude Code 첫 세션${NC} → CLAUDE.md의 [TODO] 마커가 자동으로 채워짐"
+        echo -e "    2. agent-docs/obsidian/README.md에서 ${GREEN}ARCHITECTURE_SUMMARY${NC}, ${GREEN}WANDB_PROJECT${NC} 등 미정 항목 채우기"
+        echo -e "    3. Obsidian에서 $project_dir 폴더가 정상 표시되는지 확인"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    fi
 }
 
 # ─── daily ────────────────────────────────────────────────────────────────────

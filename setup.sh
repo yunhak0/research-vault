@@ -555,6 +555,11 @@ cmd_project() {
     fi
     code_repo=$(ask "Git 로컬 저장소 경로" "$repo_hint")
     code_repo="${code_repo/#\~/$HOME}"
+    while [[ -z "$code_repo" ]]; do
+        log_warn "경로를 입력해주세요."
+        code_repo=$(ask "Git 로컬 저장소 경로" "$repo_hint")
+        code_repo="${code_repo/#\~/$HOME}"
+    done
     # ── 저장소 상태에 따른 분기 (interactive) ──
     local repo_method="existing"
     if [[ ! -d "$code_repo" ]]; then

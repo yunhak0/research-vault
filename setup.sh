@@ -42,6 +42,36 @@ log_section() { echo -e "\n${BLUE}━━━ $1 ━━━${NC}"; }
 
 # ─── 유틸리티 ─────────────────────────────────────────────────────────────────
 
+# Windows 네이티브 환경 감지 (Git Bash / MSYS2)
+# WSL은 ln -s가 동작하므로 false 반환
+is_windows_native() {
+    case "${OSTYPE:-}" in
+        msys*|mingw*|cygwin*) return 0 ;;
+    esac
+    # OSTYPE이 없을 때 fallback
+    if [[ "$(uname -o 2>/dev/null)" =~ Msys|Cygwin ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# 디렉토리 심볼릭 링크 생성 (크로스 플랫폼)
+# Windows 네이티브에서는 NTFS junction, 그 외에는 ln -s
+create_dir_link() {
+    local target="$1"   # 실제 디렉토리 (obsidian_dir)
+    local link_name="$2" # 생성할 링크 (vault_project)
+
+    if is_windows_native; then
+        # Git Bash/MSYS2: cygpath로 Windows 경로 변환 후 junction 생성
+        local win_target win_link
+        win_target=$(cygpath -w "$target")
+        win_link=$(cygpath -w "$link_name")
+        cmd.exe /c "mklink /J \"$win_link\" \"$win_target\"" > /dev/null 2>&1
+    else
+        ln -s "$target" "$link_name"
+    fi
+}
+
 # 사용자 입력 (프롬프트, 기본값)
 ask() {
     local prompt="$1"
@@ -316,9 +346,13 @@ _setup_project() {
         done
         echo "  ✅ 플레이스홀더 치환"
 
-        # 4. Vault symlink
-        ln -s "$obsidian_dir" "$vault_project"
-        echo "  ✅ Vault symlink: $project_dir → $code_repo/agent-docs/obsidian"
+        # 4. Vault symlink (Windows: junction point)
+        create_dir_link "$obsidian_dir" "$vault_project"
+        if is_windows_native; then
+            echo "  ✅ Vault junction: $project_dir → $code_repo/agent-docs/obsidian"
+        else
+            echo "  ✅ Vault symlink: $project_dir → $code_repo/agent-docs/obsidian"
+        fi
 
         # 5. daily.conf
         local conf_file="$vault_path/.vault/daily.conf"
@@ -360,7 +394,11 @@ _setup_project() {
         echo "  ✅ 플레이스홀더 치환"
 
         echo "  ℹ️  Vault에 직접 생성됨 (symlink 없음)"
-        echo "  ℹ️  나중에 repo 연결 시: rm -rf $vault_project && ln -s <repo>/agent-docs/obsidian $vault_project"
+        if is_windows_native; then
+            echo "  ℹ️  나중에 repo 연결 시: rmdir /s $vault_project && mklink /J $vault_project <repo>\\agent-docs\\obsidian"
+        else
+            echo "  ℹ️  나중에 repo 연결 시: rm -rf $vault_project && ln -s <repo>/agent-docs/obsidian $vault_project"
+        fi
     fi
 
     # 6. config.yaml (양쪽 모드 공통)
@@ -607,15 +645,24 @@ cmd_project() {
         echo -e "    1. Obsidian에서 ${GREEN}$project_dir${NC} 폴더 확인"
         echo -e "    2. README.md에서 미정 항목 채우기"
         echo -e "    3. Repo 생성 후 연결:"
-        echo -e "       ${CYAN}rm -rf $vault_path/$project_dir${NC}"
-        echo -e "       ${CYAN}ln -s <repo>/agent-docs/obsidian $vault_path/$project_dir${NC}"
+        if is_windows_native; then
+            echo -e "       ${CYAN}rmdir /s \"$(cygpath -w "$vault_path/$project_dir")\"${NC}"
+            echo -e "       ${CYAN}mklink /J \"$(cygpath -w "$vault_path/$project_dir")\" \"<repo>\\agent-docs\\obsidian\"${NC}"
+        else
+            echo -e "       ${CYAN}rm -rf $vault_path/$project_dir${NC}"
+            echo -e "       ${CYAN}ln -s <repo>/agent-docs/obsidian $vault_path/$project_dir${NC}"
+        fi
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     else
         echo -e "  ${CYAN}📁 프로젝트 repo${NC}: $code_repo"
         echo -e "  ${CYAN}🤖 CLAUDE.md${NC}: $code_repo/CLAUDE.md ([TODO] → 첫 세션에서 자동 채움)"
         echo -e "  ${CYAN}📄 문서 정의서${NC}: $code_repo/agent-docs/obsidian/README.md"
         echo -e "  ${CYAN}📄 프로젝트 인덱스${NC}: $code_repo/agent-docs/obsidian/00_project_index.md"
-        echo -e "  ${CYAN}🔗 Vault symlink${NC}: $vault_path/$project_dir → $code_repo/agent-docs/obsidian"
+        if is_windows_native; then
+            echo -e "  ${CYAN}🔗 Vault junction${NC}: $vault_path/$project_dir → $code_repo/agent-docs/obsidian"
+        else
+            echo -e "  ${CYAN}🔗 Vault symlink${NC}: $vault_path/$project_dir → $code_repo/agent-docs/obsidian"
+        fi
         echo ""
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo -e "  다음 단계:"

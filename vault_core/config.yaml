@@ -1,0 +1,36 @@
+# ==============================================================================
+# Research Vault Configuration
+# ==============================================================================
+#
+# 이 파일은 vault 전체의 설정을 관리합니다.
+# 빈 값("")이나 빈 배열([])은 첫 Claude 세션에서 자동으로 질문됩니다.
+#
+# 수동 편집 가능: 값을 직접 채워넣으면 Claude가 다시 묻지 않습니다.
+# ==============================================================================
+
+# ─── Vault 기본 설정 ──────────────────────────────────────────────────────────
+vault:
+  # Vault 절대 경로 (setup.sh가 자동 설정)
+  path: ""
+  # Vault 소유자 이름
+  owner: ""
+
+# ─── Notion 연계 ──────────────────────────────────────────────────────────────
+# Notion Research Archive DB와 연결합니다.
+# 사용하지 않으면 enabled: false로 두세요.
+notion:
+  enabled: false
+  # Research Archive DB ID (Notion URL에서 추출)
+  # 예: c9b7c9e81b91483ca8a060c50710a8c2
+  archive_db_id: ""
+  # Data Source ID (Claude가 fetch로 확인 가능)
+  # 예: cf3a6be3-34a2-4284-a849-ac5b5967e743
+  archive_data_source_id: ""
+
+# ─── Daily Note 자동화 ────────────────────────────────────────────────────────
+# Git 저장소 추적 설정은 .vault/daily.conf에서 관리됩니다.
+# setup.sh project 실행 시 자동으로 daily.conf에 추가됩니다.
+
+# ─── 프로젝트 목록 (setup.sh project로 자동 관리) ─────────────────────────────
+# 각 항목: {id: "P001", name: "project_name", code_repo: "~/path/to/repo"}
+projects: []

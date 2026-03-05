@@ -1,0 +1,11 @@
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[codz]
+.venv/
+
+# Editor
+.vscode/
+.idea/

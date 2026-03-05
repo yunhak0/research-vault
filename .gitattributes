@@ -1,0 +1,2 @@
+# Development-only (exclude from git archive / distribution)
+tests/ export-ignore
